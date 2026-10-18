@@ -45,6 +45,20 @@ runtime supplies 2.35.
 
 ## Repack
 
+In the original workspace, rebuild and replace the existing V1 image, compressed
+image, RetroArch executable/source archives, checksums, and manifest with:
+
+```sh
+bash scripts/rebuild_v1.sh
+```
+
+This uses the sibling source, sysroot, and toolchain directories by default.
+The `RGSP_RETROARCH_SOURCE`, `RGSP_STOCK_SYSROOT`, and `RGSP_ARMHF_HOST`
+variables override them. The existing `dist/RGSP_retroarch-V1.img` supplies the
+baseline; `RGSP_V1_BASELINE` can select another baseline. Old artifacts are
+replaced only after compilation, repacking, and compression checks succeed.
+The output filenames and release version remain V1.
+
 Decompress the V1 release image into `inputs/RGSP_retroarch-V1.img`. Repack with
 the current overlay and optional replacement ARMHF RetroArch executable:
 

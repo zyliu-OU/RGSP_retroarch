@@ -34,3 +34,17 @@ Check Quick Menu → Close Content during a game, then Settings → Wi-Fi,
 Bluetooth, and Services → SSH. Inspect `RGSP-SHARE/logs/frontend-status.txt`.
 If stock fallback is active, inspect `retroarch-crash.log`; the fallback
 frontend cannot expose the new wireless menus.
+
+## V1 settings persistence correction
+
+The updated RetroArch restart path retains the selected `--config` argument
+and the complete executable path. The supervisor stores fallback settings in
+`RGSP-SHARE/configfiles/retroarch/retroarch-stock.cfg`, waits for a graceful
+frontend stop, and syncs before restarting or powering off.
+
+The corrected ARMHF frontend compiled successfully. Host regression tests
+exercise the actual restart argument code and two supervisor fallback sessions,
+checking that settings survive and a service stop does not request poweroff.
+Run `python3 -m unittest discover -s tests -v` to repeat these checks.
+Use `bash scripts/rebuild_v1.sh` to regenerate the V1 artifacts and checksums
+with these changes before publishing them over the existing V1 release.

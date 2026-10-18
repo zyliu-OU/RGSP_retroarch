@@ -5,8 +5,11 @@ RA=/mnt/vendor/deep/retro/retroarch
 STOCK=/mnt/vendor/deep/retro/retroarch-stock
 DEFAULT=/.config/retroarch/retroarch.cfg
 SHARED=/mnt/shared/configfiles/retroarch/retroarch.cfg
+STOCK_CONFIG=/mnt/shared/configfiles/retroarch/retroarch-stock.cfg
 LOG=/var/log/rgsp-retroarch.log
 PID=/run/rgsp-retroarch-supervisor.pid
+CHILD_PID=/run/rgsp-retroarch.pid
+STOPPING=/run/rgsp-retroarch-stopping
 
 start_session() {
     mkdir -p /mnt/vendor /mnt/mmc /mnt/shared /var/log /run /.config/retroarch
@@ -26,6 +29,7 @@ start_session() {
     [ -x "$RA" ] && [ -f "$CFG" ] || {
         echo 'RGSP: RetroArch or configuration missing' > /dev/console; return 1;
     }
+    rm -f "$STOPPING"
     (
         export HOME=/
         export XDG_CONFIG_HOME=/.config
@@ -37,14 +41,15 @@ start_session() {
         run_binary="$RA"
         run_config="$CFG"
         if mountpoint -q /mnt/shared; then
-            echo 'RGSP wireless RetroArch active' > /mnt/shared/logs/frontend-status.txt
+            printf 'RGSP wireless RetroArch active\nConfig: %s\n' "$CFG" > /mnt/shared/logs/frontend-status.txt
         fi
         quick_failures=0
-        while :; do
+        while [ ! -e "$STOPPING" ]; do
             /usr/local/sbin/rgsp-speaker off >> "$LOG" 2>&1 || true
             started=$(date +%s)
             "$run_binary" --config "$run_config" >> "$LOG" 2>&1 &
             ra_pid=$!
+            echo "$ra_pid" > "$CHILD_PID"
             (
                 sleep 2
                 if kill -0 "$ra_pid" 2>/dev/null; then
@@ -53,7 +58,11 @@ start_session() {
             ) &
             wait "$ra_pid"
             rc=$?
+            rm -f "$CHILD_PID"
             /usr/local/sbin/rgsp-speaker off >> "$LOG" 2>&1 || true
+            sync
+            # An init stop/restart must let RetroArch finish writing its config.
+            [ -e "$STOPPING" ] && break
             if [ "$rc" -eq 0 ]; then
                 echo 'Main-menu Shutdown selected; powering off' >> "$LOG"
                 sync
@@ -66,12 +75,20 @@ start_session() {
                     quick_failures=$((quick_failures + 1))
                     if [ "$quick_failures" -ge 3 ] && [ -x "$STOCK" ]; then
                         run_binary="$STOCK"
-                        run_config=/run/rgsp-retroarch-stock.cfg
-                        cp "$CFG" "$run_config"
-                        sed -i 's/^config_save_on_exit = .*/config_save_on_exit = "false"/' "$run_config"
+                        # Keep fallback settings across boots without replacing
+                        # the wireless frontend's separate configuration.
+                        run_config="$STOCK_CONFIG"
+                        if ! mountpoint -q /mnt/shared; then
+                            run_config=/.config/retroarch/retroarch-stock.cfg
+                        fi
+                        if [ ! -f "$run_config" ]; then
+                            cp "$CFG" "$run_config.new" || break
+                            sed -i 's/^config_save_on_exit = .*/config_save_on_exit = "true"/' "$run_config.new"
+                            mv "$run_config.new" "$run_config" || break
+                        fi
                         echo 'Using stock RetroArch fallback after three quick failures' >> "$LOG"
                         if mountpoint -q /mnt/shared; then
-                            echo 'Stock RetroArch fallback active; wireless menus unavailable' > /mnt/shared/logs/frontend-status.txt
+                            printf 'Stock RetroArch fallback active; wireless menus unavailable\nConfig: %s\n' "$run_config" > /mnt/shared/logs/frontend-status.txt
                             tail -n 200 "$LOG" > /mnt/shared/logs/retroarch-crash.log
                             sync
                         fi
@@ -82,6 +99,7 @@ start_session() {
             fi
             sleep 2
         done
+        rm -f "$CHILD_PID" "$PID"
     ) &
     echo "$!" > "$PID"
 }
@@ -89,12 +107,27 @@ start_session() {
 case "${1:-start}" in
     start) start_session ;;
     stop)
+        : > "$STOPPING"
         /usr/local/sbin/rgsp-speaker off >> "$LOG" 2>&1 || true
+        if [ -r "$CHILD_PID" ]; then
+            ra_pid=$(cat "$CHILD_PID")
+            kill -TERM "$ra_pid" 2>/dev/null || true
+            remaining=10
+            while kill -0 "$ra_pid" 2>/dev/null && [ "$remaining" -gt 0 ]; do
+                sleep 1
+                remaining=$((remaining - 1))
+            done
+            if kill -0 "$ra_pid" 2>/dev/null; then
+                echo 'RetroArch did not exit within 10 seconds; forcing stop' >> "$LOG"
+                kill -KILL "$ra_pid" 2>/dev/null || true
+            fi
+        fi
         if [ -r "$PID" ]; then
             kill "$(cat "$PID")" 2>/dev/null || true
             rm -f "$PID"
         fi
-        killall retroarch 2>/dev/null || true
+        rm -f "$CHILD_PID"
+        sync
         ;;
     restart) "$0" stop; "$0" start ;;
     *) echo "Usage: $0 start|stop|restart" >&2; exit 2 ;;

@@ -63,6 +63,38 @@ index ad7e0db..4539881 100644
  
     if (    !retroarch_override_setting_is_set(RARCH_OVERRIDE_SETTING_SAVE_PATH, NULL)
           && config_get_path(conf, "savefile_directory", tmp_str, sizeof(tmp_str)))
+diff --git a/frontend/drivers/platform_unix.c b/frontend/drivers/platform_unix.c
+index 80f824d..b4f5c72 100644
+--- a/frontend/drivers/platform_unix.c
++++ b/frontend/drivers/platform_unix.c
+@@ -2564,6 +2564,19 @@ static bool frontend_unix_set_fork(enum frontend_fork fork_mode)
+ 
+ static void frontend_unix_exec(const char *path, bool should_load_content)
+ {
++#ifdef HAVE_RGSP
++   /* Restart must keep the writable shared config selected by the supervisor. */
++   const char *config_path = path_get(RARCH_PATH_CONFIG);
++   char *newargv[] = { (char*)path, NULL, NULL, NULL };
++
++   if (!string_is_empty(config_path))
++   {
++      newargv[1] = (char*)"--config";
++      newargv[2] = (char*)config_path;
++   }
++   sync();
++   execv(path, newargv);
++#else
+    char *newargv[]    = { NULL, NULL };
+    size_t _len        = strlen(path);
+ 
+@@ -2572,6 +2585,7 @@ static void frontend_unix_exec(const char *path, bool should_load_content)
+    strlcpy(newargv[0], path, _len);
+ 
+    execv(path, newargv);
++#endif
+ }
+ 
+ static void frontend_unix_exitspawn(char *s, size_t len, char *args)
 diff --git a/intl/msg_hash_us.h b/intl/msg_hash_us.h
 index 66167e0..fae23ad 100644
 --- a/intl/msg_hash_us.h

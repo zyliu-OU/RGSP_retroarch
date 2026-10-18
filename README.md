@@ -44,6 +44,10 @@ A stock fallback means the new frontend crashed. The associated
 `retroarch-crash.log` records details. Close Content returns to the menu;
 the main-menu shutdown action powers off the device.
 
+Restart retains the active configuration path. The stock fallback saves its
+own settings to `configfiles/retroarch/retroarch-stock.cfg` on RGSP-SHARE.
+Service restarts wait for RetroArch to finish saving before stopping it.
+
 ## Source and rebuilding
 
 The repository contains the firmware overlay, RetroArch patch, toolchain
