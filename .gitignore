@@ -1,0 +1,11 @@
+/dist/
+/build/
+/sources/
+/inputs/
+__pycache__/
+*.pyc
+*.log
+*.img
+*.img.zst
+*.ext4
+*.partial

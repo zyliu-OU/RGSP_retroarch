@@ -1,0 +1,17 @@
+Port 22
+AddressFamily inet
+HostKey /etc/ssh/ssh_host_ed25519_key
+PidFile /run/rgsp-sshd.pid
+UsePAM no
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+AuthorizedKeysFile /etc/ssh/authorized_keys
+PermitEmptyPasswords no
+AllowUsers root
+X11Forwarding no
+AllowTcpForwarding no
+PermitTunnel no
+Subsystem sftp /usr/libexec/rgsp-sftp-server

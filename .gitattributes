@@ -1,0 +1,4 @@
+*.patch -whitespace
+*.img binary
+*.zst binary
+*.gz binary

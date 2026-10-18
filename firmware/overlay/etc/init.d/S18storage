@@ -1,0 +1,70 @@
+#!/bin/sh
+# Present Lakka-style user folders on the PC-readable FAT32 data volume.
+case "${1:-start}" in
+    start) ;;
+    *) exit 0 ;;
+esac
+
+DATA=/mnt/shared
+PART=/dev/mmcblk0p7
+CFG=/mnt/shared/configfiles/retroarch/retroarch.cfg
+DEFAULT=/.config/retroarch/retroarch.cfg
+LOG=/var/log/rgsp-storage.log
+
+mkdir -p "$DATA" /var/log
+if ! mountpoint -q "$DATA"; then
+    # A card removed during a PC write can have an unclean FAT. Repair it
+    # before RetroArch touches the volume; still boot the menu if repair fails.
+    /sbin/fsck.fat -a "$PART" >> "$LOG" 2>&1 || \
+        echo 'Shared FAT check reported an error' >> "$LOG"
+    mount -t vfat -o rw,utf8,flush "$PART" "$DATA" >> "$LOG" 2>&1 || {
+        echo 'RGSP: shared storage unavailable' > /dev/console
+        exit 0
+    }
+fi
+
+for dir in roms savefiles savestates screenshots playlists system thumbnails \
+           recordings downloads remappings configfiles/retroarch/config \
+           configfiles/recordings services logs; do
+    mkdir -p "$DATA/$dir" || exit 1
+done
+if [ ! -f "$CFG" ]; then
+    cp "$DEFAULT" "$CFG.new" && mv "$CFG.new" "$CFG" || exit 1
+fi
+# V1 exposes available settings once for existing shared configurations.
+MENU_MIGRATION=/mnt/shared/configfiles/retroarch/.menu-visibility-v1
+if [ ! -e "$MENU_MIGRATION" ]; then
+    set_menu_option() {
+        key=$1
+        value=$2
+        if grep -q "^${key}[[:space:]]*=" "$CFG"; then
+            sed "s/^${key}[[:space:]]*=.*/${key} = \"${value}\"/" \
+                "$CFG" > "$CFG.new" && mv "$CFG.new" "$CFG" || return 1
+        else
+            printf '%s = "%s"\n' "$key" "$value" >> "$CFG" || return 1
+        fi
+    }
+    set_menu_option quick_menu_show_close_content true || exit 1
+    set_menu_option menu_show_advanced_settings true || exit 1
+    set_menu_option settings_show_network true || exit 1
+    set_menu_option settings_show_logging true || exit 1
+    set_menu_option settings_show_power_management true || exit 1
+    set_menu_option settings_show_recording true || exit 1
+    set_menu_option settings_show_accessibility true || exit 1
+    set_menu_option wifi_driver connmanctl || exit 1
+    set_menu_option wifi_enabled true || exit 1
+    set_menu_option bluetooth_driver bluetoothctl || exit 1
+    : > "$MENU_MIGRATION" || exit 1
+fi
+# The vendor appfs contains a small set of default BIOS files. Copy only
+# when absent; user-supplied files always win.
+mkdir -p /mnt/vendor
+mountpoint -q /mnt/vendor || mount -t ext4 -o ro,noload /dev/mmcblk0p6 /mnt/vendor >> "$LOG" 2>&1 || true
+if mountpoint -q /mnt/vendor; then
+    for file in /mnt/vendor/deep/retro/system/*; do
+        [ -f "$file" ] || continue
+        target="$DATA/system/${file##*/}"
+        [ -e "$target" ] || cp "$file" "$target" || exit 1
+    done
+fi
+sync

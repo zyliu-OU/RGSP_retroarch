@@ -1,0 +1,32 @@
+#!/bin/sh
+# Charger insertion boot: run the vendor charging UI before the game session.
+MODE=/sys/class/power_supply/axp2202-battery/boot_mode
+LOG=/var/log/rgsp-charging.log
+
+case "$1" in
+    start) ;;
+    *) exit 0 ;;
+esac
+[ "$(cat "$MODE" 2>/dev/null)" = 1 ] || exit 0
+
+mkdir -p /mnt/vendor /var/log
+exec >> "$LOG" 2>&1
+echo "Charging boot: $(date)"
+/usr/local/sbin/rgsp-speaker off || true
+if ! mountpoint -q /mnt/vendor; then
+    mount -t ext4 -o ro,noload /dev/mmcblk0p6 /mnt/vendor || echo 'Cannot mount charger appfs'
+fi
+if [ -x /mnt/vendor/bin/charg.dge ]; then
+    export LD_LIBRARY_PATH=/mnt/vendor/lib:/usr/lib/arm-linux-gnueabihf:/usr/lib32
+    /mnt/vendor/bin/charg.dge
+    echo "Charger UI exited ($?)"
+else
+    echo 'Charger UI missing'
+fi
+# The charger requests a reboot when power is pressed and a poweroff on
+# unplug. Give either request time to complete. Never fall through to the
+# RetroArch boot path while the kernel reports charger boot mode.
+sleep 10
+sync
+/sbin/poweroff
+while :; do sleep 60; done

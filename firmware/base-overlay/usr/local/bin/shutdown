@@ -1,0 +1,7 @@
+#!/bin/sh
+# Map the stock RetroArch Lakka-style shell calls to BusyBox OS actions.
+case "$*" in
+    '-P now'|'-h now') sync; exec /sbin/poweroff ;;
+    '-r now') sync; exec /sbin/reboot ;;
+    *) echo "Unsupported shutdown arguments: $*" >&2; exit 2 ;;
+esac

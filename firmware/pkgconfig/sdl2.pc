@@ -1,0 +1,10 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib32
+includedir=${prefix}/include/SDL2
+
+Name: sdl2
+Description: RG SP stock ARMHF SDL2
+Version: 2.0.12
+Libs: -L${libdir} -lSDL2
+Cflags: -I${includedir}

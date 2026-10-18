@@ -1,0 +1,21 @@
+#!/bin/sh
+# Toggle the stock codec's speaker path without changing game volume.
+set -u
+case "${1:-}" in
+    on) value=1 ;;
+    off) value=0 ;;
+    *) echo 'Usage: rgsp-speaker on|off' >&2; exit 2 ;;
+esac
+
+card=''
+for path in /proc/asound/card[0-9]*/id; do
+    [ -r "$path" ] || continue
+    IFS= read -r name < "$path" || true
+    [ "$name" = audiocodec ] || continue
+    card=${path#/proc/asound/card}
+    card=${card%/id}
+    break
+done
+[ -n "$card" ] || { echo 'audiocodec ALSA card not found' >&2; exit 1; }
+export LD_LIBRARY_PATH=/usr/lib32:/usr/lib/arm-linux-gnueabihf
+exec /usr/local/bin/tinymix -D "$card" set 'SPK Switch' "$value"

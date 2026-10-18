@@ -1,0 +1,21 @@
+#!/bin/sh
+# Wi-Fi provisioning lives in the same visible storage as the ROMs.
+SOURCE=/mnt/shared/services/RGSP-WIFI.config
+DEST=/var/lib/connman/rgsp-wifi.config
+LOG=/var/log/rgsp-wifi-provision.log
+
+case "$1" in
+    start)
+        mkdir -p /var/lib/connman /var/log
+        [ -f "$SOURCE" ] || exit 0
+        [ "$(wc -c < "$SOURCE")" -le 65536 ] || {
+            echo 'RGSP-WIFI.config exceeds 64 KiB' >> "$LOG"
+            exit 1
+        }
+        cp "$SOURCE" "$DEST.tmp" || exit 1
+        chmod 600 "$DEST.tmp"
+        mv -f "$DEST.tmp" "$DEST"
+        echo 'Imported RGSP-WIFI.config for ConnMan' >> "$LOG"
+        ;;
+    *) exit 0 ;;
+esac

@@ -1,0 +1,28 @@
+#!/bin/sh
+# Start the stock RTL8821C UART Bluetooth controller before bluetoothd.
+PID=/run/rgsp-hciattach.pid
+LOG=/var/log/rgsp-radio.log
+
+case "$1" in
+    start)
+        mkdir -p /run /var/log
+        rfkill unblock wifi >> "$LOG" 2>&1 || true
+        rfkill unblock bluetooth >> "$LOG" 2>&1 || true
+        if [ -c /dev/ttyS1 ] && [ -x /usr/local/bin/rtk_hciattach ] &&
+           [ ! -s "$PID" ]; then
+            /usr/local/bin/rtk_hciattach -n -s 115200 ttyS1 rtk_h5 >> "$LOG" 2>&1 &
+            echo "$!" > "$PID"
+        fi
+        ;;
+    stop)
+        if [ -s "$PID" ]; then
+            kill "$(cat "$PID")" 2>/dev/null || true
+            rm -f "$PID"
+        fi
+        ;;
+    restart)
+        "$0" stop
+        "$0" start
+        ;;
+    *) echo "Usage: $0 start|stop|restart" >&2; exit 2 ;;
+esac

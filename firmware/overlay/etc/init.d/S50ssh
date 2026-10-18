@@ -1,0 +1,61 @@
+#!/bin/sh
+# Optional key-only SSH service. Enable from RetroArch Settings > Services.
+set -u
+
+MARKER=/etc/rgsp/ssh-enabled
+KEYS=/mnt/shared/services/authorized_keys
+IMPORTED=/etc/ssh/authorized_keys
+HOSTKEY=/etc/ssh/ssh_host_ed25519_key
+CONF=/etc/ssh/sshd_config
+PID=/run/rgsp-sshd.pid
+LOG=/var/log/rgsp-sshd.log
+export LD_LIBRARY_PATH=/usr/lib/rgsp-ssh${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+stop_server() {
+    if [ -f "$PID" ]; then
+        server_pid=$(cat "$PID")
+        kill "$server_pid" 2>/dev/null || true
+        rm -f "$PID"
+    fi
+}
+
+start_server() {
+    [ -f "$MARKER" ] || return 0
+    if [ ! -s "$KEYS" ]; then
+        echo 'SSH disabled: place a public key in RGSP-SHARE/services/authorized_keys' >> "$LOG"
+        return 1
+    fi
+    mkdir -p /etc/ssh /etc/rgsp /run/sshd /var/log
+    chmod 0755 /run/sshd
+    cp "$KEYS" "$IMPORTED.new" || return 1
+    chmod 0600 "$IMPORTED.new" || return 1
+    mv "$IMPORTED.new" "$IMPORTED" || return 1
+    if [ ! -s "$HOSTKEY" ]; then
+        /usr/bin/rgsp-ssh-keygen -q -t ed25519 -N '' -f "$HOSTKEY" >> "$LOG" 2>&1 || return 1
+    fi
+    chmod 0600 "$HOSTKEY"
+    if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then
+        return 0
+    fi
+    /usr/sbin/rgsp-sshd -t -f "$CONF" >> "$LOG" 2>&1 || return 1
+    /usr/sbin/rgsp-sshd -f "$CONF" -E "$LOG" || return 1
+    sleep 1
+    [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null
+}
+
+case "${1:-start}" in
+    start) start_server ;;
+    stop) stop_server ;;
+    enable)
+        [ -s "$KEYS" ] || {
+            echo 'Add a public key to RGSP-SHARE/services/authorized_keys first' >&2
+            exit 1
+        }
+        mkdir -p /etc/rgsp
+        : > "$MARKER" || exit 1
+        start_server || { rm -f "$MARKER"; exit 1; }
+        ;;
+    disable) rm -f "$MARKER"; stop_server ;;
+    restart) stop_server; start_server ;;
+    *) echo 'Usage: S50ssh start|stop|enable|disable|restart' >&2; exit 2 ;;
+esac

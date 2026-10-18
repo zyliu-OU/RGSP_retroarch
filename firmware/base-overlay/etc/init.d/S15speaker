@@ -1,0 +1,5 @@
+#!/bin/sh
+case "${1:-start}" in
+    start|stop) /usr/local/sbin/rgsp-speaker off >> /var/log/rgsp-speaker.log 2>&1 || true ;;
+    *) echo 'Usage: S15speaker start|stop' >&2; exit 2 ;;
+esac

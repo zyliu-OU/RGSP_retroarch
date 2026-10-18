@@ -1,0 +1,250 @@
+diff --git a/Makefile b/Makefile
+index e17bb14..b27603c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -118,7 +118,7 @@ ifneq ($(CXX_BUILD), 1)
+       CFLAGS += $(C99_CFLAGS)
+    endif
+ 
+-   CFLAGS += -D_GNU_SOURCE
++   CFLAGS += -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L
+ endif
+ 
+ DEF_FLAGS += $(INCLUDE_DIRS) -Ideps -Ideps/stb
+diff --git a/Makefile.common b/Makefile.common
+index 57dabf5..2c1133c 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -814,11 +814,11 @@ ifeq ($(HAVE_BLUETOOTH), 1)
+ endif
+ 
+ ifeq ($(HAVE_LAKKA), 1)
+-   OBJ += network/drivers_wifi/connmanctl.o
+    OBJ += misc/cpufreq/cpufreq.o
+ endif
+ 
+ ifeq ($(HAVE_WIFI), 1)
++   OBJ += network/drivers_wifi/connmanctl.o
+    OBJ += network/wifi_driver.o
+    OBJ += tasks/task_wifi.o
+    OBJ += network/drivers_wifi/nmcli.o
+@@ -1159,7 +1159,7 @@ ifeq ($(HAVE_FREETYPE), 1)
+    OBJ += gfx/drivers_font_renderer/freetype.o
+    LIBS += $(FREETYPE_LIBS)
+    DEF_FLAGS += $(FREETYPE_CFLAGS)
+-   ifeq ($(HAVE_FREETYPE), 1)
++   ifeq ($(HAVE_FONTCONFIG), 1)
+       LIBS += $(FONTCONFIG_LIBS)
+       DEF_FLAGS += $(FONTCONFIG_CFLAGS)
+    endif
+diff --git a/configuration.c b/configuration.c
+index ad7e0db..4539881 100644
+--- a/configuration.c
++++ b/configuration.c
+@@ -3041,6 +3041,10 @@ void config_set_defaults(void *data)
+    configuration_set_bool(settings, settings->bools.localap_enable, false);
+    load_timezone(settings->arrays.timezone, TIMEZONE_LENGTH);
+ #endif
++#ifdef HAVE_RGSP
++   configuration_set_bool(settings,
++         settings->bools.ssh_enable, filestream_exists("/etc/rgsp/ssh-enabled"));
++#endif
+ 
+ #if __APPLE__
+    configuration_set_bool(settings,
+@@ -4410,6 +4414,10 @@ static bool config_load_file(global_t *global,
+    configuration_set_bool(settings,
+          settings->bools.bluetooth_enable, filestream_exists(LAKKA_BLUETOOTH_PATH));
+ #endif
++#ifdef HAVE_RGSP
++   configuration_set_bool(settings,
++         settings->bools.ssh_enable, filestream_exists("/etc/rgsp/ssh-enabled"));
++#endif
+ 
+    if (    !retroarch_override_setting_is_set(RARCH_OVERRIDE_SETTING_SAVE_PATH, NULL)
+          && config_get_path(conf, "savefile_directory", tmp_str, sizeof(tmp_str)))
+diff --git a/intl/msg_hash_us.h b/intl/msg_hash_us.h
+index 66167e0..fae23ad 100644
+--- a/intl/msg_hash_us.h
++++ b/intl/msg_hash_us.h
+@@ -16617,6 +16617,26 @@ MSG_HASH(
+    "Disable Bluetooth ERTM to fix pairing of some devices"
+    )
+ #endif
++#endif
++#ifdef HAVE_RGSP
++MSG_HASH(
++   MENU_ENUM_LABEL_VALUE_LAKKA_SERVICES,
++   "Services"
++   )
++MSG_HASH(
++   MENU_ENUM_SUBLABEL_SERVICES_SETTINGS,
++   "Manage services available on the RG SP."
++   )
++MSG_HASH(
++   MENU_ENUM_LABEL_VALUE_SSH_ENABLE,
++   "SSH"
++   )
++MSG_HASH(
++   MENU_ENUM_SUBLABEL_SSH_ENABLE,
++   "Allow key-based remote access after adding your public key to RGSP-SHARE/services/authorized_keys."
++   )
++#endif
++#if defined(HAVE_LAKKA) || defined(HAVE_WIFI)
+ MSG_HASH(
+    MSG_LOCALAP_SWITCHING_OFF,
+    "Switching off Wi-Fi Access Point."
+diff --git a/lakka.h b/lakka.h
+index 625a7ab..1503635 100644
+--- a/lakka.h
++++ b/lakka.h
+@@ -22,7 +22,7 @@
+ #define LAKKA_SAMBA_PATH     "/storage/.cache/services/samba.conf"
+ #define LAKKA_BLUETOOTH_PATH "/storage/.cache/services/bluez.conf"
+ #define LAKKA_UPDATE_DIR     "/storage/.update/"
+-#define LAKKA_CONNMAN_DIR    "/storage/.cache/connman/"
++#define LAKKA_CONNMAN_DIR    "/var/lib/connman/"
+ #define LAKKA_LOCALAP_PATH   "/storage/.cache/services/localap.conf"
+ #define LAKKA_TIMEZONE_PATH  "/storage/.cache/timezone"
+ 
+diff --git a/menu/menu_displaylist.c b/menu/menu_displaylist.c
+index 8b3de10..5644636 100644
+--- a/menu/menu_displaylist.c
++++ b/menu/menu_displaylist.c
+@@ -10235,15 +10235,17 @@ unsigned menu_displaylist_build_list(
+             }
+          }
+          break;
+-#ifdef HAVE_LAKKA
++#if defined(HAVE_LAKKA) || defined(HAVE_RGSP)
+       case DISPLAYLIST_LAKKA_SERVICES_LIST:
+          {
+             static const menu_displaylist_build_info_t build_list[] = {
+                {MENU_ENUM_LABEL_SSH_ENABLE,                                            PARSE_ONLY_BOOL},
++#ifdef HAVE_LAKKA
+                {MENU_ENUM_LABEL_SAMBA_ENABLE,                                          PARSE_ONLY_BOOL},
+                {MENU_ENUM_LABEL_BLUETOOTH_ENABLE,                                      PARSE_ONLY_BOOL},
+                {MENU_ENUM_LABEL_LOCALAP_ENABLE,                                        PARSE_ONLY_BOOL},
+                {MENU_ENUM_LABEL_TIMEZONE,                                              PARSE_ONLY_STRING_OPTIONS},
++#endif
+             };
+ 
+             for (i = 0; i < ARRAY_SIZE(build_list); i++)
+diff --git a/menu/menu_setting.c b/menu/menu_setting.c
+index 24fe6af..dca10e9 100644
+--- a/menu/menu_setting.c
++++ b/menu/menu_setting.c
+@@ -9285,6 +9285,18 @@ static void timezone_change_handler(rarch_setting_t *setting)
+ }
+ #endif
+ 
++#ifdef HAVE_RGSP
++static void ssh_enable_toggle_change_handler(rarch_setting_t *setting)
++{
++   bool enable = *setting->value.target.boolean;
++   int result = system(enable
++         ? "/etc/init.d/S50ssh enable"
++         : "/etc/init.d/S50ssh disable");
++   if (result != 0)
++      *setting->value.target.boolean = !enable;
++}
++#endif
++
+ static void appicon_change_handler(rarch_setting_t *setting)
+ {
+    uico_driver_state_t *uico_st    = uico_state_get_ptr();
+@@ -10704,7 +10716,7 @@ static bool setting_append_list(
+                parent_group);
+          SETTINGS_DATA_LIST_CURRENT_ADD_FLAGS(list, list_info, SD_FLAG_LAKKA_ADVANCED);
+ 
+-#ifdef HAVE_LAKKA
++#if defined(HAVE_LAKKA) || defined(HAVE_RGSP)
+          CONFIG_ACTION(
+                list, list_info,
+                MENU_ENUM_LABEL_LAKKA_SERVICES,
+@@ -23414,7 +23426,7 @@ static bool setting_append_list(
+          break;
+       case SETTINGS_LIST_LAKKA_SERVICES:
+          {
+-#if defined(HAVE_LAKKA)
++#if defined(HAVE_LAKKA) || defined(HAVE_RGSP)
+             START_GROUP(list, list_info, &group_info,
+                   msg_hash_to_str(MENU_ENUM_LABEL_VALUE_LAKKA_SERVICES),
+                   parent_group);
+@@ -23440,6 +23452,7 @@ static bool setting_append_list(
+                   SD_FLAG_NONE);
+             (*list)[list_info->index - 1].change_handler = ssh_enable_toggle_change_handler;
+ 
++#ifdef HAVE_LAKKA
+             CONFIG_BOOL(
+                   list, list_info,
+                   &settings->bools.samba_enable,
+@@ -23507,6 +23520,7 @@ static bool setting_append_list(
+             SETTINGS_DATA_LIST_CURRENT_ADD_FLAGS(list, list_info, SD_FLAG_IS_DRIVER);
+             (*list)[list_info->index - 1].action_ok      = setting_action_ok_uint;
+             (*list)[list_info->index - 1].change_handler = timezone_change_handler;
++#endif
+ 
+             END_SUB_GROUP(list, list_info, parent_group);
+             END_GROUP(list, list_info, parent_group);
+diff --git a/msg_hash.h b/msg_hash.h
+index 8a58ffd..9b4619a 100644
+--- a/msg_hash.h
++++ b/msg_hash.h
+@@ -573,7 +573,7 @@ enum msg_hash_enums
+    MSG_MISSING_ASSETS,
+    MSG_RGUI_MISSING_FONTS,
+    MSG_RGUI_INVALID_LANGUAGE,
+-#ifdef HAVE_LAKKA
++#if defined(HAVE_LAKKA) || defined(HAVE_WIFI)
+    MSG_LOCALAP_SWITCHING_OFF,
+    MSG_WIFI_DISCONNECT_FROM,
+    MSG_LOCALAP_ALREADY_RUNNING,
+@@ -2512,8 +2512,10 @@ enum msg_hash_enums
+    MENU_ENUM_LABEL_OVERLAY_NEXT,
+ 
+    MENU_LABEL(NETPLAY_ENABLE),
+-#ifdef HAVE_LAKKA
++#if defined(HAVE_LAKKA) || defined(HAVE_RGSP)
+    MENU_LABEL(SSH_ENABLE),
++#endif
++#ifdef HAVE_LAKKA
+    MENU_LABEL(SAMBA_ENABLE),
+    MENU_LABEL(BLUETOOTH_ENABLE),
+    MENU_LABEL(LOCALAP_ENABLE),
+@@ -3829,7 +3831,7 @@ enum msg_hash_enums
+    MENU_LABEL(MIXER_ACTION_REMOVE),
+    MENU_LABEL(MIXER_ACTION_VOLUME),
+    MENU_ENUM_SUBLABEL_INFORMATION_LIST_LIST,
+-#ifdef HAVE_LAKKA
++#if defined(HAVE_LAKKA) || defined(HAVE_RGSP)
+    MENU_ENUM_SUBLABEL_SERVICES_SETTINGS,
+ #endif
+ 
+diff --git a/network/wifi_driver.c b/network/wifi_driver.c
+index 70eed13..5bd20f6 100644
+--- a/network/wifi_driver.c
++++ b/network/wifi_driver.c
+@@ -45,7 +45,7 @@ wifi_driver_t wifi_null = {
+ };
+ 
+ const wifi_driver_t *wifi_drivers[] = {
+-#ifdef HAVE_LAKKA
++#ifdef HAVE_WIFI
+    &wifi_connmanctl,
+ #endif
+ #ifdef HAVE_WIFI
+diff --git a/qb/config.libs.sh b/qb/config.libs.sh
+index d5315b8..a34b536 100644
+--- a/qb/config.libs.sh
++++ b/qb/config.libs.sh
+@@ -538,6 +538,9 @@ check_val '' UDEV "-ludev" '' libudev '' '' false
+ check_val '' V4L2 -lv4l2 '' libv4l2 '' '' false
+ check_val '' FREETYPE -lfreetype freetype2 freetype2 '' '' false
+ check_val '' FONTCONFIG -lfontconfig fontconfig fontconfig '' '' false
++if [ "$HAVE_FONTCONFIG" = 'yes' ]; then
++   check_header '' FONTCONFIG fontconfig/fontconfig.h
++fi
+ check_val '' X11 -lX11 '' x11 '' '' false
+ 
+ if [ "$HAVE_X11" != 'no' ]; then

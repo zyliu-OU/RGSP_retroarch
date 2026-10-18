@@ -1,0 +1,15 @@
+{
+  "project": "RGSP_retroarch",
+  "version": "V1",
+  "status": "experimental",
+  "retroarch_version": "1.22.0",
+  "retroarch_upstream_commit": "703321e80784e3fe3ba0dd648e482cd1ee47cdc0",
+  "hardware_boot_tested": false,
+  "image_bytes": 3243245568,
+  "sha256": {
+    "RGSP_retroarch-V1.img": "e9d89a6d60744fa675c78f4b5ef806f77d00af9171b60c456574115571a02f97",
+    "RGSP_retroarch-V1.img.zst": "58562ea4f511e9aab90ceaaef893cc70a375300bb15cbcf2be8b53e6964ba06d",
+    "RetroArch-1.22.0-rgsp-v1-source.tar.gz": "6a6a48d3eef1538ba2655afcf426088cb1f55f2c16e11f60395b27f0fe23d86e",
+    "retroarch-armhf-v1.tar.gz": "382157035135e6e0be18420620d560c50d3ce672217e755d08bb7a2a95cd7334"
+  }
+}

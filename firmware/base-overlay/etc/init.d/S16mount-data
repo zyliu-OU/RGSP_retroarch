@@ -1,0 +1,3 @@
+#!/bin/sh
+# V12 uses FAT32 p7 mounted by S99retroarch at /mnt/shared.
+exit 0

@@ -1,0 +1,62 @@
+#!/bin/sh
+# Grow the last (UDISK) partition after this compact image is flashed.
+# Stage one updates GPT and reboots so the kernel sees p7's new size.
+# Stage two formats the previously unformatted shared partition as FAT32.
+# Files copied to the stock ROM partition p1 are never touched.
+DISK=/dev/mmcblk0
+PART=/dev/mmcblk0p7
+LOG=/var/log/rgsp-expand-data.log
+STATE=/etc/rgsp-data-expanded
+
+case "${1:-start}" in
+    start) ;;
+    *) exit 0 ;;
+esac
+# A charger-only boot must reach the charging UI without changing the card
+# or rebooting. Expansion resumes on the next normal power-button boot.
+[ "$(cat /sys/class/power_supply/axp2202-battery/boot_mode 2>/dev/null)" = 1 ] && exit 0
+[ -e "$STATE" ] && exit 0
+[ -b "$DISK" ] && [ -b "$PART" ] || exit 0
+
+exec >> "$LOG" 2>&1
+echo "RGSP data expansion: $(date)"
+
+# Find the p7 start and current size from the kernel's live partition table.
+start=$(cat /sys/class/block/mmcblk0p7/start) || exit 1
+size=$(cat /sys/class/block/mmcblk0p7/size) || exit 1
+sectors=$(blockdev --getsz "$DISK") || exit 1
+case "$start:$size:$sectors" in
+    *[!0-9:]*|:*|*::*) echo 'Invalid block geometry'; exit 1 ;;
+esac
+[ "$start" -gt 0 ] && [ "$size" -gt 0 ] || exit 1
+
+# The compact image has p7 at sector 6070272. Do not repartition an
+# unexpected card or a card with another partition after p7.
+[ "$start" -eq 6070272 ] || { echo "Unexpected p7 start: $start"; exit 1; }
+last=$((sectors - 34))
+[ "$last" -ge "$((start + size - 1))" ] || { echo 'Card is too small'; exit 1; }
+current_end=$((start + size - 1))
+
+if [ "$((last - current_end))" -gt 32768 ]; then
+    sfdisk --no-reread --no-tell-kernel --relocate gpt-bak-std "$DISK" || exit 1
+    printf 'start=%s, size=%s\n' "$start" "$((last - start + 1))" |
+        sfdisk --no-reread --no-tell-kernel -N 7 "$DISK" || exit 1
+    sync
+    echo 'GPT enlarged; rebooting to refresh the kernel partition table'
+    reboot
+    exit 0
+fi
+
+# An unformatted p7 stays hidden from the PC until first boot. A retry
+# after a power loss must preserve any FAT filesystem already created here.
+fs_type=$(blkid -s TYPE -o value "$PART" 2>/dev/null || true)
+if [ -z "$fs_type" ]; then
+    mkfs.vfat -F 32 -n RGSP-SHARE "$PART" || exit 1
+elif [ "$fs_type" != vfat ] || [ "$(blkid -s LABEL -o value "$PART")" != RGSP-SHARE ]; then
+    echo 'Unexpected p7 filesystem; refusing to format'
+    exit 1
+fi
+sfdisk --no-reread --no-tell-kernel --part-attrs "$DISK" 7 '' || exit 1
+touch "$STATE"
+sync
+echo 'Shared FAT32 partition ready'

@@ -1,0 +1,101 @@
+#!/bin/sh
+# Run RetroArch with its writable user configuration on RGSP-SHARE.
+set -u
+RA=/mnt/vendor/deep/retro/retroarch
+STOCK=/mnt/vendor/deep/retro/retroarch-stock
+DEFAULT=/.config/retroarch/retroarch.cfg
+SHARED=/mnt/shared/configfiles/retroarch/retroarch.cfg
+LOG=/var/log/rgsp-retroarch.log
+PID=/run/rgsp-retroarch-supervisor.pid
+
+start_session() {
+    mkdir -p /mnt/vendor /mnt/mmc /mnt/shared /var/log /run /.config/retroarch
+    mountpoint -q /mnt/vendor || mount -t ext4 -o ro,noload /dev/mmcblk0p6 /mnt/vendor || {
+        echo 'RGSP: cannot mount appfs p6' > /dev/console; return 1;
+    }
+    # Legacy factory ROMs stay accessible on the console, while new ROMs go
+    # into the sole PC-visible volume. Never change the old FAT volume here.
+    mountpoint -q /mnt/mmc || mount -t vfat -o ro,utf8 /dev/mmcblk0p1 /mnt/mmc || true
+    CFG="$DEFAULT"
+    if mountpoint -q /mnt/shared && [ -f "$SHARED" ]; then
+        CFG="$SHARED"
+    fi
+    if [ ! -e /dev/mali0 ] && [ -f /lib/modules/mali_kbase.ko ]; then
+        insmod /lib/modules/mali_kbase.ko >> "$LOG" 2>&1 || true
+    fi
+    [ -x "$RA" ] && [ -f "$CFG" ] || {
+        echo 'RGSP: RetroArch or configuration missing' > /dev/console; return 1;
+    }
+    (
+        export HOME=/
+        export XDG_CONFIG_HOME=/.config
+        export LD_LIBRARY_PATH=/usr/lib32:/usr/lib/arm-linux-gnueabihf:/mnt/vendor/lib
+        export SDL_VIDEODRIVER=mali
+        export SDL_AUDIODRIVER=alsa
+        export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+        cd /mnt/vendor/deep/retro || exit 1
+        run_binary="$RA"
+        run_config="$CFG"
+        if mountpoint -q /mnt/shared; then
+            echo 'RGSP wireless RetroArch active' > /mnt/shared/logs/frontend-status.txt
+        fi
+        quick_failures=0
+        while :; do
+            /usr/local/sbin/rgsp-speaker off >> "$LOG" 2>&1 || true
+            started=$(date +%s)
+            "$run_binary" --config "$run_config" >> "$LOG" 2>&1 &
+            ra_pid=$!
+            (
+                sleep 2
+                if kill -0 "$ra_pid" 2>/dev/null; then
+                    /usr/local/sbin/rgsp-speaker on >> "$LOG" 2>&1 || true
+                fi
+            ) &
+            wait "$ra_pid"
+            rc=$?
+            /usr/local/sbin/rgsp-speaker off >> "$LOG" 2>&1 || true
+            if [ "$rc" -eq 0 ]; then
+                echo 'Main-menu Shutdown selected; powering off' >> "$LOG"
+                sync
+                /sbin/poweroff >> "$LOG" 2>&1
+                echo 'Poweroff request failed; restarting RetroArch' >> "$LOG"
+            else
+                echo "RetroArch exited unexpectedly ($rc); restarting" >> "$LOG"
+                elapsed=$(($(date +%s) - started))
+                if [ "$run_binary" = "$RA" ] && [ "$elapsed" -lt 10 ]; then
+                    quick_failures=$((quick_failures + 1))
+                    if [ "$quick_failures" -ge 3 ] && [ -x "$STOCK" ]; then
+                        run_binary="$STOCK"
+                        run_config=/run/rgsp-retroarch-stock.cfg
+                        cp "$CFG" "$run_config"
+                        sed -i 's/^config_save_on_exit = .*/config_save_on_exit = "false"/' "$run_config"
+                        echo 'Using stock RetroArch fallback after three quick failures' >> "$LOG"
+                        if mountpoint -q /mnt/shared; then
+                            echo 'Stock RetroArch fallback active; wireless menus unavailable' > /mnt/shared/logs/frontend-status.txt
+                            tail -n 200 "$LOG" > /mnt/shared/logs/retroarch-crash.log
+                            sync
+                        fi
+                    fi
+                else
+                    quick_failures=0
+                fi
+            fi
+            sleep 2
+        done
+    ) &
+    echo "$!" > "$PID"
+}
+
+case "${1:-start}" in
+    start) start_session ;;
+    stop)
+        /usr/local/sbin/rgsp-speaker off >> "$LOG" 2>&1 || true
+        if [ -r "$PID" ]; then
+            kill "$(cat "$PID")" 2>/dev/null || true
+            rm -f "$PID"
+        fi
+        killall retroarch 2>/dev/null || true
+        ;;
+    restart) "$0" stop; "$0" start ;;
+    *) echo "Usage: $0 start|stop|restart" >&2; exit 2 ;;
+esac

@@ -1,0 +1,24 @@
+#!/bin/sh
+# A PC can place RGSP-WIFI.config on the Roms partition before boot.
+# ConnMan reads the copied provisioning file when S45connman starts.
+SOURCE=/mnt/mmc/RGSP-WIFI.config
+DEST=/var/lib/connman/rgsp-wifi.config
+LOG=/var/log/rgsp-wifi-provision.log
+
+case "$1" in
+    start)
+        mkdir -p /mnt/mmc /var/lib/connman /var/log
+        mountpoint -q /mnt/mmc || mount -t vfat -o rw,utf8 /dev/mmcblk0p1 /mnt/mmc || exit 0
+        [ -f "$SOURCE" ] || exit 0
+        # Keep a mistaken large file from exhausting the small root filesystem.
+        [ "$(wc -c < "$SOURCE")" -le 65536 ] || {
+            echo 'RGSP-WIFI.config exceeds 64 KiB' >> "$LOG"
+            exit 1
+        }
+        cp "$SOURCE" "$DEST.tmp" || exit 1
+        chmod 600 "$DEST.tmp"
+        mv -f "$DEST.tmp" "$DEST"
+        echo 'Imported RGSP-WIFI.config for ConnMan' >> "$LOG"
+        ;;
+    *) exit 0 ;;
+esac
